@@ -4,40 +4,52 @@ export async function onRequest(context) {
   const now = new Date();
 
   // Build timestamp (year fixed to 2013)
-  const month = String(now.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(now.getUTCDate()).padStart(2, "0");
-  const hours = String(now.getUTCHours()).padStart(2, "0");
-  const minutes = String(now.getUTCMinutes()).padStart(2, "0");
-  const seconds = String(now.getUTCSeconds()).padStart(2, "0");
-
-  const timestamp = `2013${month}${day}${hours}${minutes}${seconds}`;
+  const timestamp =
+    "2013" +
+    String(now.getUTCMonth() + 1).padStart(2, "0") +
+    String(now.getUTCDate()).padStart(2, "0") +
+    String(now.getUTCHours()).padStart(2, "0") +
+    String(now.getUTCMinutes()).padStart(2, "0") +
+    String(now.getUTCSeconds()).padStart(2, "0");
 
   const url = new URL(request.url);
 
-  // 🔥 Remove "/mirrortube" prefix
-  let path = url.pathname.replace(/^\/mirrortube/, "");
-  if (path === "/") path = "";
+  // 🔥 Strip FULL base path
+const parts = url.pathname.split("/");
+const base = `/${parts[1]}/${parts[2]}`; // /mirrortube/2013
+let path = url.pathname.slice(base.length);
 
-  const query = url.search || "";
+  // Normalize root
+  if (!path || path === "/") {
+    path = "";
+  }
 
-  const target = `https://web.archive.org/web/${timestamp}id_/http://www.youtube.com${path}${query}`;
+  const target =
+    "https://web.archive.org/web/" +
+    timestamp +
+    "id_/http://www.youtube.com" +
+    path +
+    url.search;
 
   try {
-    const response = await fetch(target, {
+    const res = await fetch(target, {
       headers: {
-        "User-Agent": request.headers.get("user-agent") || "Mozilla/5.0",
+        "User-Agent":
+          request.headers.get("user-agent") || "Mozilla/5.0",
       },
     });
 
-    return new Response(response.body, {
-      status: response.status,
-      headers: response.headers,
-    });
+    const headers = new Headers(res.headers);
+    headers.set("Access-Control-Allow-Origin", "*");
 
-  } catch (err) {
+    return new Response(res.body, {
+      status: res.status,
+      headers,
+    });
+  } catch (e) {
     return new Response(
       JSON.stringify({
-        error: "Failed to fetch archived page",
+        error: "fetch failed",
         target,
       }),
       {
