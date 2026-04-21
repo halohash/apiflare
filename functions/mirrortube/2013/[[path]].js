@@ -2,7 +2,7 @@ export async function onRequest(context) {
   const { request } = context;
   const url = new URL(request.url);
 
-  // ===== Build timestamp (2013 + current time) =====
+  // ===== Timestamp (2013 + current time) =====
   const now = new Date();
   const timestamp =
     "2013" +
@@ -20,7 +20,7 @@ export async function onRequest(context) {
 
   if (!path || path === "/") path = "";
 
-  // ===== Target Wayback URL =====
+  // ===== Target URL =====
   const target =
     `https://web.archive.org/web/${timestamp}id_/http://www.youtube.com` +
     path +
@@ -37,23 +37,18 @@ export async function onRequest(context) {
   } catch (e) {
     return new Response(
       JSON.stringify({ error: "fetch failed", target }),
-      {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      }
+      { status: 500 }
     );
   }
 
-  // ===== Clone + fix headers =====
+  // ===== Headers =====
   const headers = new Headers(res.headers);
 
-  // remove restrictive headers
   headers.delete("content-security-policy");
   headers.delete("content-security-policy-report-only");
   headers.delete("x-frame-options");
   headers.delete("x-content-type-options");
 
-  // 🔥 FULLY OPEN CSP
   headers.set(
     "content-security-policy",
     `
@@ -78,11 +73,11 @@ export async function onRequest(context) {
   if (contentType.includes("text/html")) {
     let text = await res.text();
 
-    // 🔥 Remove Wayback toolbar
+    // 🔥 Remove Wayback UI
     text = text.replace(/<div id="wm-ipp".*?<\/div>/gis, "");
     text = text.replace(/<script[^>]*archive\.org[^>]*><\/script>/gi, "");
 
-    // 🔁 Rewrite Wayback URLs → mirror
+    // 🔁 Rewrite Wayback absolute URLs
     text = text.replace(
       /https:\/\/web\.archive\.org\/web\/\d+id_\/http:\/\/www\.youtube\.com/gi,
       "/mirrortube/2013"
@@ -99,6 +94,12 @@ export async function onRequest(context) {
       "/mirrortube/2013"
     );
 
+    // 🔥 FIX protocol-relative URLs (//ytimg, etc.)
+    text = text.replace(
+      /(["'=])\/\/([^"'\s]+)/gi,
+      `$1https://web.archive.org/web/${timestamp}id_/http://$2`
+    );
+
     // 🔁 Fix root-relative paths
     text = text.replace(/href="\//gi, 'href="/mirrortube/2013/');
     text = text.replace(/src="\//gi, 'src="/mirrortube/2013/');
@@ -109,7 +110,7 @@ export async function onRequest(context) {
     });
   }
 
-  // ===== Non-HTML (JS, CSS, images, etc.) =====
+  // ===== Non-HTML =====
   return new Response(res.body, {
     status: res.status,
     headers,
