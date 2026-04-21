@@ -125,6 +125,32 @@ if (url.pathname.endsWith(".swf")) {
     "https://file.garden/aUYIWVAKvQxCBY-_/database/swf/watch_as3-vflMmYdk4.swf"
   );
 }
+    // 🔥 Force all SWF requests to your custom player
+if (url.pathname.toLowerCase().endsWith(".swf")) {
+  return fetch(
+    "https://file.garden/aUYIWVAKvQxCBY-_/database/swf/watch_as3-vflMmYdk4.swf",
+    {
+      headers: {
+        "User-Agent":
+          request.headers.get("user-agent") || "Mozilla/5.0",
+      },
+    }
+  );
+}
+    // a bulletproof one ig
+const fullUrl = url.pathname + url.search;
+
+if (/\.swf(\?|$)/i.test(fullUrl)) {
+  return fetch(
+    "https://file.garden/aUYIWVAKvQxCBY-_/database/swf/watch_as3-vflMmYdk4.swf",
+    {
+      headers: {
+        "User-Agent":
+          request.headers.get("user-agent") || "Mozilla/5.0",
+      },
+    }
+  );
+}
     return new Response(text, {
       status: res.status,
       headers,
