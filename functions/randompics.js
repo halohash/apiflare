@@ -22,7 +22,8 @@ try {
     return new Response(response.body, {
       headers: {
         "Content-Type": response.headers.get("Content-Type") || "image/jpeg",
-        "Cache-Control": "no-store"
+        "Cache-Control": "no-store",
+        "Access-Control-Allow-Origin": "*"
       }
     });
 

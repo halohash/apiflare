@@ -21,7 +21,8 @@ try {
     return new Response(response.body, {
       headers: {
         "Content-Type": response.headers.get("Content-Type") || "video/mp4",
-        "Cache-Control": "no-store"
+        "Cache-Control": "no-store",
+        "Access-Control-Allow-Origin": "*"
       }
     });
 
