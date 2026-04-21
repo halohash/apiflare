@@ -119,7 +119,12 @@ text = text.replace(
   /\/\/[^"'\s]+\.swf/gi,
   "https://file.garden/aUYIWVAKvQxCBY-_/database/swf/watch_as3-vflMmYdk4.swf"
 );
-
+// 🔥 Force all .swf requests to your file
+if (url.pathname.endsWith(".swf")) {
+  return fetch(
+    "https://file.garden/aUYIWVAKvQxCBY-_/database/swf/watch_as3-vflMmYdk4.swf"
+  );
+}
     return new Response(text, {
       status: res.status,
       headers,
