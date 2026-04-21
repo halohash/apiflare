@@ -93,7 +93,11 @@ export async function onRequest(context) {
       /https?:\/\/www\.youtube\.com/gi,
       "/mirrortube/2013"
     );
-
+// 🔥 Force http:// assets → Wayback HTTPS
+text = text.replace(
+  /(["'=])http:\/\/([^"'\s]+)/gi,
+  `$1https://web.archive.org/web/${timestamp}id_/http://$2`
+);
     // 🔥 FIX protocol-relative URLs (//ytimg, etc.)
     text = text.replace(
       /(["'=])\/\/([^"'\s]+)/gi,
