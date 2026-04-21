@@ -29,7 +29,7 @@ export async function onRequest() {
         if (!track.url) continue;
 
         const title = track.title || "Unknown";
-        playlist += `#EXTINF:${track.duration},${title}\n`;
+        playlist += `#EXTINF\n`;
         playlist += `${track.url}\n`;
       }
     }
