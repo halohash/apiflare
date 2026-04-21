@@ -2,7 +2,7 @@ export async function onRequest(context) {
   const { request } = context;
   const url = new URL(request.url);
 
-  // ===== Timestamp (2013 + current month/day/time) =====
+  // ===== Build timestamp (2013 + current time) =====
   const now = new Date();
   const timestamp =
     "2013" +
@@ -12,7 +12,7 @@ export async function onRequest(context) {
     String(now.getUTCMinutes()).padStart(2, "0") +
     String(now.getUTCSeconds()).padStart(2, "0");
 
-  // ===== Strip base path (/mirrortube/2013) =====
+  // ===== Strip base path =====
   const base = "/mirrortube/2013";
   let path = url.pathname.startsWith(base)
     ? url.pathname.slice(base.length)
@@ -30,43 +30,64 @@ export async function onRequest(context) {
   try {
     res = await fetch(target, {
       headers: {
-        "User-Agent": request.headers.get("user-agent") || "Mozilla/5.0",
+        "User-Agent":
+          request.headers.get("user-agent") || "Mozilla/5.0",
       },
     });
   } catch (e) {
     return new Response(
       JSON.stringify({ error: "fetch failed", target }),
-      { status: 500 }
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }
     );
   }
 
-  // ===== Clone headers + remove blockers =====
+  // ===== Clone + fix headers =====
   const headers = new Headers(res.headers);
 
+  // remove restrictive headers
   headers.delete("content-security-policy");
   headers.delete("content-security-policy-report-only");
   headers.delete("x-frame-options");
   headers.delete("x-content-type-options");
 
+  // 🔥 FULLY OPEN CSP
+  headers.set(
+    "content-security-policy",
+    `
+    default-src * data: blob: 'unsafe-inline' 'unsafe-eval';
+    script-src * data: blob: 'unsafe-inline' 'unsafe-eval';
+    style-src * data: blob: 'unsafe-inline';
+    img-src * data: blob:;
+    frame-src *;
+    connect-src *;
+    media-src *;
+    font-src * data:;
+    `
+      .replace(/\s+/g, " ")
+      .trim()
+  );
+
   headers.set("access-control-allow-origin", "*");
 
   const contentType = headers.get("content-type") || "";
 
-  // ===== HTML Rewriting =====
+  // ===== HTML rewriting =====
   if (contentType.includes("text/html")) {
     let text = await res.text();
 
     // 🔥 Remove Wayback toolbar
-    text = text.replace(/<script[^>]*archive\.org[^>]*><\/script>/gi, "");
     text = text.replace(/<div id="wm-ipp".*?<\/div>/gis, "");
+    text = text.replace(/<script[^>]*archive\.org[^>]*><\/script>/gi, "");
 
-    // 🔁 Rewrite Wayback absolute URLs → your mirror
+    // 🔁 Rewrite Wayback URLs → mirror
     text = text.replace(
       /https:\/\/web\.archive\.org\/web\/\d+id_\/http:\/\/www\.youtube\.com/gi,
       "/mirrortube/2013"
     );
 
-    // 🔁 Rewrite protocol-relative
     text = text.replace(
       /\/\/web\.archive\.org\/web\/\d+id_\/http:\/\/www\.youtube\.com/gi,
       "/mirrortube/2013"
@@ -78,16 +99,9 @@ export async function onRequest(context) {
       "/mirrortube/2013"
     );
 
-    // 🔁 Fix relative links (href="/...")
-    text = text.replace(
-      /href="\//gi,
-      'href="/mirrortube/2013/'
-    );
-
-    text = text.replace(
-      /src="\//gi,
-      'src="/mirrortube/2013/'
-    );
+    // 🔁 Fix root-relative paths
+    text = text.replace(/href="\//gi, 'href="/mirrortube/2013/');
+    text = text.replace(/src="\//gi, 'src="/mirrortube/2013/');
 
     return new Response(text, {
       status: res.status,
@@ -95,7 +109,7 @@ export async function onRequest(context) {
     });
   }
 
-  // ===== Non-HTML (CSS, JS, images, etc.) =====
+  // ===== Non-HTML (JS, CSS, images, etc.) =====
   return new Response(res.body, {
     status: res.status,
     headers,
