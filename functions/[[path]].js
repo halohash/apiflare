@@ -1,19 +1,29 @@
 export async function onRequest({ request }) {
   const url = new URL(request.url);
 
-  // Allow CORS preflight
+  // =========================
+  // ✅ HANDLE OPTIONS FIRST
+  // =========================
   if (request.method === "OPTIONS") {
     return new Response(null, {
+      status: 204,
       headers: corsHeaders()
     });
   }
 
-  // Only allow POST
+  // =========================
+  // ❗ ONLY ALLOW POST
+  // =========================
   if (request.method !== "POST") {
-    return new Response("Not allowed", { status: 405 });
+    return new Response("Not allowed", {
+      status: 405,
+      headers: corsHeaders()
+    });
   }
 
-  // Parse body safely
+  // =========================
+  // 🔍 PARSE BODY SAFELY
+  // =========================
   let incoming = {};
   try {
     const text = await request.text();
@@ -37,6 +47,7 @@ export async function onRequest({ request }) {
       incoming.context?.client?.clientName === "TVHTML5";
 
     if (hasValidContext) {
+      // ✅ Pass through
       body = { ...incoming };
 
       if (!body.browseId) {
@@ -46,6 +57,7 @@ export async function onRequest({ request }) {
           "default";
       }
     } else {
+      // 🔧 Inject full TV payload
       body = {
         context: buildTVContext(),
         browseId:
@@ -56,13 +68,12 @@ export async function onRequest({ request }) {
       };
     }
 
-    // continuation
+    // continuation passthrough
     if (incoming.continuation || params.get("continuation")) {
       body.continuation =
         incoming.continuation || params.get("continuation");
     }
 
-    // visitorData passthrough
     passthroughVisitor(body, incoming);
   }
 
@@ -76,8 +87,10 @@ export async function onRequest({ request }) {
       incoming.context?.client?.clientName === "TVHTML5";
 
     if (hasValidContext) {
+      // ✅ Pass through
       body = { ...incoming };
     } else {
+      // 🔧 Inject exact payload
       body = {
         context: buildTVContext()
       };
@@ -87,24 +100,35 @@ export async function onRequest({ request }) {
   }
 
   // =========================
-  // ❌ UNKNOWN
+  // ❌ UNKNOWN ROUTE
   // =========================
   else {
-    return new Response("Not found", { status: 404 });
+    return new Response("Not found", {
+      status: 404,
+      headers: corsHeaders()
+    });
   }
 
-  // Headers (TV client)
+  // =========================
+  // 📡 HEADERS (TV CLIENT)
+  // =========================
   const headers = new Headers();
   headers.set("content-type", "application/json");
   headers.set("x-youtube-client-name", "7");
   headers.set("x-youtube-client-version", "6.20180807");
 
+  // =========================
+  // 🚀 FETCH TARGET
+  // =========================
   const response = await fetch(targetUrl, {
     method: "POST",
     headers,
     body: JSON.stringify(body)
   });
 
+  // =========================
+  // 📦 RETURN RESPONSE
+  // =========================
   const responseHeaders = new Headers(response.headers);
   applyCors(responseHeaders);
 
@@ -114,9 +138,11 @@ export async function onRequest({ request }) {
   });
 }
 
+//
 // =========================
-// 🔧 Helpers
+// 🔧 HELPERS
 // =========================
+//
 
 function buildTVContext() {
   return {
@@ -173,7 +199,8 @@ function corsHeaders() {
   return {
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "POST, OPTIONS",
-    "access-control-allow-headers": "*"
+    "access-control-allow-headers": "*",
+    "access-control-max-age": "86400"
   };
 }
 
