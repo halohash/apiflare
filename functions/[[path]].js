@@ -2,7 +2,7 @@ export async function onRequest({ request }) {
   const url = new URL(request.url);
 
   // =========================
-  // ✅ HANDLE OPTIONS FIRST
+  // ✅ OPTIONS (CORS PREFLIGHT)
   // =========================
   if (request.method === "OPTIONS") {
     return new Response(null, {
@@ -12,7 +12,7 @@ export async function onRequest({ request }) {
   }
 
   // =========================
-  // ❗ ONLY ALLOW POST
+  // ❗ ONLY POST ALLOWED
   // =========================
   if (request.method !== "POST") {
     return new Response("Not allowed", {
@@ -22,7 +22,7 @@ export async function onRequest({ request }) {
   }
 
   // =========================
-  // 🔍 PARSE BODY SAFELY
+  // 🔍 SAFE BODY PARSE
   // =========================
   let incoming = {};
   try {
@@ -36,18 +36,19 @@ export async function onRequest({ request }) {
 
   let targetUrl;
   let body;
+  let type;
 
   // =========================
   // 🎬 BROWSE
   // =========================
   if (url.pathname === "/youtubei/v1/browse") {
     targetUrl = "http://yt2009.truehosting.net/youtubei/v1/browse";
+    type = "browse";
 
     const hasValidContext =
       incoming.context?.client?.clientName === "TVHTML5";
 
     if (hasValidContext) {
-      // ✅ Pass through
       body = { ...incoming };
 
       if (!body.browseId) {
@@ -57,7 +58,6 @@ export async function onRequest({ request }) {
           "default";
       }
     } else {
-      // 🔧 Inject full TV payload
       body = {
         context: buildTVContext(),
         browseId:
@@ -68,7 +68,6 @@ export async function onRequest({ request }) {
       };
     }
 
-    // continuation passthrough
     if (incoming.continuation || params.get("continuation")) {
       body.continuation =
         incoming.continuation || params.get("continuation");
@@ -82,15 +81,14 @@ export async function onRequest({ request }) {
   // =========================
   else if (url.pathname === "/youtubei/v1/guide") {
     targetUrl = "http://yt2009.truehosting.net/youtubei/v1/guide";
+    type = "guide";
 
     const hasValidContext =
       incoming.context?.client?.clientName === "TVHTML5";
 
     if (hasValidContext) {
-      // ✅ Pass through
       body = { ...incoming };
     } else {
-      // 🔧 Inject exact payload
       body = {
         context: buildTVContext()
       };
@@ -100,7 +98,7 @@ export async function onRequest({ request }) {
   }
 
   // =========================
-  // ❌ UNKNOWN ROUTE
+  // ❌ UNKNOWN
   // =========================
   else {
     return new Response("Not found", {
@@ -110,7 +108,7 @@ export async function onRequest({ request }) {
   }
 
   // =========================
-  // 📡 HEADERS (TV CLIENT)
+  // 📡 HEADERS
   // =========================
   const headers = new Headers();
   headers.set("content-type", "application/json");
@@ -118,24 +116,81 @@ export async function onRequest({ request }) {
   headers.set("x-youtube-client-version", "6.20180807");
 
   // =========================
-  // 🚀 FETCH TARGET
+  // 🚀 FETCH WITH HANDLING
   // =========================
-  const response = await fetch(targetUrl, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body)
-  });
+  return await fetchWithHandling(targetUrl, headers, body, type);
+}
 
-  // =========================
-  // 📦 RETURN RESPONSE
-  // =========================
-  const responseHeaders = new Headers(response.headers);
-  applyCors(responseHeaders);
+//
+// =========================
+// 🔧 FETCH HANDLER
+// =========================
+//
+async function fetchWithHandling(targetUrl, headers, body, type) {
+  try {
+    const response = await fetch(targetUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body)
+    });
 
-  return new Response(response.body, {
-    status: response.status,
-    headers: responseHeaders
-  });
+    const responseHeaders = new Headers(response.headers);
+    applyCors(responseHeaders);
+    responseHeaders.set("content-type", "application/json");
+
+    if (!response.ok) {
+      let errorText = "";
+      try {
+        errorText = await response.text();
+      } catch {}
+
+      return new Response(
+        JSON.stringify(formatError(type, response.status, errorText)),
+        {
+          status: 502,
+          headers: responseHeaders
+        }
+      );
+    }
+
+    return new Response(response.body, {
+      status: response.status,
+      headers: responseHeaders
+    });
+
+  } catch (err) {
+    return new Response(
+      JSON.stringify(formatError(type, 500, err?.message)),
+      {
+        status: 500,
+        headers: {
+          ...corsHeaders(),
+          "content-type": "application/json"
+        }
+      }
+    );
+  }
+}
+
+//
+// =========================
+// ❗ ERROR FORMATS
+// =========================
+//
+function formatError(type, status, details) {
+  if (type === "guide") {
+    return {
+      guide_error: "Guide request failed",
+      code: status,
+      message: details || null
+    };
+  }
+
+  return {
+    error: "Browse request failed",
+    status,
+    details: details || null
+  };
 }
 
 //
@@ -143,7 +198,6 @@ export async function onRequest({ request }) {
 // 🔧 HELPERS
 // =========================
 //
-
 function buildTVContext() {
   return {
     client: {
