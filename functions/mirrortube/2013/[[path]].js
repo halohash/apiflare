@@ -107,6 +107,18 @@ text = text.replace(
     // 🔁 Fix root-relative paths
     text = text.replace(/href="\//gi, 'href="/mirrortube/2013/');
     text = text.replace(/src="\//gi, 'src="/mirrortube/2013/');
+    
+    // 🔥 Replace ANY .swf URL with your custom player
+text = text.replace(
+  /https?:\/\/[^"'\s]+\.swf/gi,
+  "https://file.garden/aUYIWVAKvQxCBY-_/database/swf/watch_as3-vflMmYdk4.swf"
+);
+
+// also catch protocol-relative
+text = text.replace(
+  /\/\/[^"'\s]+\.swf/gi,
+  "https://file.garden/aUYIWVAKvQxCBY-_/database/swf/watch_as3-vflMmYdk4.swf"
+);
 
     return new Response(text, {
       status: res.status,
