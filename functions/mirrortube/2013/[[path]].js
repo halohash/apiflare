@@ -1,5 +1,5 @@
 export async function onRequest(context) {
-  const { request, params } = context;
+  const { request } = context;
 
   const now = new Date();
 
@@ -12,12 +12,14 @@ export async function onRequest(context) {
 
   const timestamp = `2013${month}${day}${hours}${minutes}${seconds}`;
 
-  // Get requested path (e.g. /watch?v=abc)
   const url = new URL(request.url);
-  const path = url.pathname === "/" ? "" : url.pathname;
+
+  // 🔥 Remove "/mirrortube" prefix
+  let path = url.pathname.replace(/^\/mirrortube/, "");
+  if (path === "/") path = "";
+
   const query = url.search || "";
 
-  // Construct Wayback URL with dynamic path
   const target = `https://web.archive.org/web/${timestamp}id_/http://www.youtube.com${path}${query}`;
 
   try {
@@ -37,7 +39,6 @@ export async function onRequest(context) {
       JSON.stringify({
         error: "Failed to fetch archived page",
         target,
-        timestamp,
       }),
       {
         status: 500,
