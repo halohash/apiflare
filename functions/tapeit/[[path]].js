@@ -11,12 +11,12 @@ export async function onRequest(context) {
   }
 
   const params = new URLSearchParams(url.search);
+  const alt = params.get("alt");
 
-  if (!params.has("alt")) {
-    params.set("alt", "xml");
-  }
+  const upstreamParams = new URLSearchParams(params);
+  upstreamParams.set("alt", "xml");
 
-  const query = params.toString();
+  const query = upstreamParams.toString();
 
   let path = url.pathname;
   if (path.startsWith(prefix)) path = path.slice(prefix.length);
@@ -27,10 +27,12 @@ export async function onRequest(context) {
   const upstreamRes = await fetch(targetUrl, {
     method: request.method,
     headers: request.headers,
-    body: request.method !== "GET" && request.method !== "HEAD" ? request.body : undefined
+    body:
+      request.method !== "GET" && request.method !== "HEAD"
+        ? request.body
+        : undefined
   });
 
-  const alt = params.get("alt");
   const callback =
     params.get("callback") ||
     params.get("jsonp") ||
@@ -38,11 +40,8 @@ export async function onRequest(context) {
 
   const contentType = upstreamRes.headers.get("content-type") || "";
 
-  // =========================
-  // SIMPLE XML → GDATA JSON
-  // =========================
   if (alt && alt.startsWith("json")) {
-    const text = await upstreamRes.text();
+    const xmlText = await upstreamRes.text();
 
     function convert(xml) {
       const tagRE = /<([^\/>\s]+)([^>]*)>|<\/([^>]+)>|([^<]+)/g;
@@ -51,12 +50,16 @@ export async function onRequest(context) {
       let root = {};
       let current = root;
 
-      function addChild(parent, name, value) {
+      function fixName(name) {
         if (name.includes(":")) {
           const parts = name.split(":");
-          name = parts[0] + "$" + parts[1];
+          return parts[0] + "$" + parts[1];
         }
+        return name;
+      }
 
+      function add(parent, name, value) {
+        name = fixName(name);
         if (parent[name]) {
           if (!Array.isArray(parent[name])) parent[name] = [parent[name]];
           parent[name].push(value);
@@ -71,7 +74,7 @@ export async function onRequest(context) {
           const node = {};
           const name = match[1];
 
-          addChild(current, name, node);
+          add(current, name, node);
 
           stack.push(current);
           current = node;
@@ -88,7 +91,7 @@ export async function onRequest(context) {
 
     let parsed;
     try {
-      parsed = convert(text);
+      parsed = convert(xmlText);
     } catch (e) {
       return new Response("XML parse error", { status: 500 });
     }
@@ -107,7 +110,7 @@ export async function onRequest(context) {
       body = `${callback}(${body})`;
       return new Response(body, {
         headers: {
-          "content-type": "application/javascript",
+          "content-type": "application/javascript; charset=UTF-8",
           ...cors()
         }
       });
@@ -115,15 +118,12 @@ export async function onRequest(context) {
 
     return new Response(body, {
       headers: {
-        "content-type": "application/json",
+        "content-type": "application/json; charset=UTF-8",
         ...cors()
       }
     });
   }
 
-  // =========================
-  // TEXT/XML REWRITE
-  // =========================
   let body = upstreamRes.body;
 
   if (
@@ -138,7 +138,11 @@ export async function onRequest(context) {
     text = text
       .replaceAll("http://gdata.vidtape.lol", base)
       .replaceAll("https://gdata.vidtape.lol", base)
-      .replaceAll("http:\\/\\/gdata.vidtape.lol", base.replace(/\//g, "\\/"));
+      .replaceAll("http:\\/\\/gdata.vidtape.lol", base.replace(/\//g, "\\/"))
+      .replaceAll("?alt=xml", "")
+      .replaceAll("&alt=xml", "")
+      .replaceAll("?xml", "")
+      .replaceAll("&xml", "");
 
     body = text;
   }
@@ -150,6 +154,7 @@ export async function onRequest(context) {
   }
 
   headers.delete("content-security-policy");
+  headers.delete("content-security-policy-report-only");
   headers.delete("x-frame-options");
 
   for (const [k, v] of Object.entries(cors())) {
@@ -158,6 +163,7 @@ export async function onRequest(context) {
 
   return new Response(body, {
     status: upstreamRes.status,
+    statusText: upstreamRes.statusText,
     headers
   });
 }
@@ -166,6 +172,7 @@ function cors() {
   return {
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "*",
-    "access-control-allow-headers": "*"
+    "access-control-allow-headers": "*",
+    "access-control-expose-headers": "*"
   };
 }
