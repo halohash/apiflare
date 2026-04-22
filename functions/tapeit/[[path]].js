@@ -40,8 +40,73 @@ export async function onRequest(context) {
 
   const contentType = upstreamRes.headers.get("content-type") || "";
 
+  // =========================
+  // CLEAN URL FUNCTION
+  // =========================
+  function cleanUrl(u) {
+    try {
+      const parsed = new URL(u);
+
+      parsed.searchParams.delete("alt");
+
+      for (const key of [...parsed.searchParams.keys()]) {
+        if (key.toLowerCase() === "xml") {
+          parsed.searchParams.delete(key);
+        }
+      }
+
+      let out = parsed.toString();
+
+      out = out.replace(/\?$/, "");
+      out = out.replace(/&&+/g, "&");
+      out = out.replace(/\?&/, "?");
+
+      return out;
+    } catch {
+      return u
+        .replace(/([?&])alt=xml(&|$)/g, "$1")
+        .replace(/([?&])xml(&|$)/g, "$1")
+        .replace(/\?$/, "")
+        .replace(/&&+/g, "&")
+        .replace(/\?&/, "?");
+    }
+  }
+
+  // =========================
+  // JSON / JSONP MODE
+  // =========================
   if (alt && alt.startsWith("json")) {
-    const xmlText = await upstreamRes.text();
+    const xmlTextRaw = await upstreamRes.text();
+
+    const base = url.origin + prefix;
+
+    // rewrite + clean URLs BEFORE parsing
+    const xmlText = xmlTextRaw
+      .replace(
+        /(https?:\/\/gdata\.vidtape\.lol[^\s"'<>]*)/g,
+        (match) => {
+          let rewritten = match
+            .replace("http://gdata.vidtape.lol", base)
+            .replace("https://gdata.vidtape.lol", base);
+
+          return cleanUrl(rewritten);
+        }
+      )
+      .replace(
+        /(http:\\\/\\\/gdata\.vidtape\.lol[^"']*)/g,
+        (match) => {
+          let unescaped = match.replace(/\\\//g, "/");
+
+          let rewritten = unescaped.replace(
+            "http://gdata.vidtape.lol",
+            base
+          );
+
+          rewritten = cleanUrl(rewritten);
+
+          return rewritten.replace(/\//g, "\\/");
+        }
+      );
 
     function convert(xml) {
       const tagRE = /<([^\/>\s]+)([^>]*)>|<\/([^>]+)>|([^<]+)/g;
@@ -92,7 +157,7 @@ export async function onRequest(context) {
     let parsed;
     try {
       parsed = convert(xmlText);
-    } catch (e) {
+    } catch {
       return new Response("XML parse error", { status: 500 });
     }
 
@@ -124,6 +189,9 @@ export async function onRequest(context) {
     });
   }
 
+  // =========================
+  // XML / TEXT MODE
+  // =========================
   let body = upstreamRes.body;
 
   if (
@@ -136,13 +204,31 @@ export async function onRequest(context) {
     const base = url.origin + prefix;
 
     text = text
-      .replaceAll("http://gdata.vidtape.lol", base)
-      .replaceAll("https://gdata.vidtape.lol", base)
-      .replaceAll("http:\\/\\/gdata.vidtape.lol", base.replace(/\//g, "\\/"))
-      .replaceAll("?alt=xml", "")
-      .replaceAll("&alt=xml", "")
-      .replaceAll("?xml", "")
-      .replaceAll("&xml", "");
+      .replace(
+        /(https?:\/\/gdata\.vidtape\.lol[^\s"'<>]*)/g,
+        (match) => {
+          let rewritten = match
+            .replace("http://gdata.vidtape.lol", base)
+            .replace("https://gdata.vidtape.lol", base);
+
+          return cleanUrl(rewritten);
+        }
+      )
+      .replace(
+        /(http:\\\/\\\/gdata\.vidtape\.lol[^"']*)/g,
+        (match) => {
+          let unescaped = match.replace(/\\\//g, "/");
+
+          let rewritten = unescaped.replace(
+            "http://gdata.vidtape.lol",
+            base
+          );
+
+          rewritten = cleanUrl(rewritten);
+
+          return rewritten.replace(/\//g, "\\/");
+        }
+      );
 
     body = text;
   }
