@@ -24,20 +24,11 @@ export async function onRequest(context) {
 
   const targetUrl = upstream + path + (query ? "?" + query : "");
 
-  const headers = new Headers(request.headers);
-  headers.set("Host", new URL(upstream).host);
-
-  const init = {
+  const upstreamRes = await fetch(targetUrl, {
     method: request.method,
-    headers,
-    redirect: "manual"
-  };
-
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    init.body = request.body;
-  }
-
-  const upstreamRes = await fetch(targetUrl, init);
+    headers: request.headers,
+    body: request.method !== "GET" && request.method !== "HEAD" ? request.body : undefined
+  });
 
   const alt = params.get("alt");
   const callback =
@@ -48,71 +39,66 @@ export async function onRequest(context) {
   const contentType = upstreamRes.headers.get("content-type") || "";
 
   // =========================
-  // GDATA XML -> JSON
+  // SIMPLE XML → GDATA JSON
   // =========================
   if (alt && alt.startsWith("json")) {
-    let text = await upstreamRes.text();
+    const text = await upstreamRes.text();
 
-    const xml = new DOMParser().parseFromString(text, "text/xml");
+    function convert(xml) {
+      const tagRE = /<([^\/>\s]+)([^>]*)>|<\/([^>]+)>|([^<]+)/g;
 
-    function xmlToGData(node) {
-      if (node.nodeType === 3) {
-        const v = node.nodeValue.trim();
-        return v ? { "$t": v } : null;
-      }
+      const stack = [];
+      let root = {};
+      let current = root;
 
-      const obj = {};
+      function addChild(parent, name, value) {
+        if (name.includes(":")) {
+          const parts = name.split(":");
+          name = parts[0] + "$" + parts[1];
+        }
 
-      if (node.attributes) {
-        for (let attr of node.attributes) {
-          obj[attr.name] = attr.value;
+        if (parent[name]) {
+          if (!Array.isArray(parent[name])) parent[name] = [parent[name]];
+          parent[name].push(value);
+        } else {
+          parent[name] = value;
         }
       }
 
-      let hasElementChildren = false;
+      let match;
+      while ((match = tagRE.exec(xml))) {
+        if (match[1]) {
+          const node = {};
+          const name = match[1];
 
-      for (let child of node.childNodes) {
-        if (child.nodeType === 1) {
-          hasElementChildren = true;
+          addChild(current, name, node);
 
-          let name = child.nodeName;
-
-          if (name.includes(":")) {
-            const parts = name.split(":");
-            name = parts[0] + "$" + parts[1];
-          }
-
-          const val = xmlToGData(child);
-          if (!val) continue;
-
-          if (obj[name]) {
-            if (!Array.isArray(obj[name])) obj[name] = [obj[name]];
-            obj[name].push(val);
-          } else {
-            obj[name] = val;
-          }
+          stack.push(current);
+          current = node;
+        } else if (match[3]) {
+          current = stack.pop() || root;
+        } else if (match[4]) {
+          const text = match[4].trim();
+          if (text) current["$t"] = text;
         }
       }
 
-      if (!hasElementChildren) {
-        const text = node.textContent?.trim();
-        if (text) obj["$t"] = text;
-      }
-
-      return obj;
+      return root;
     }
 
-    let rootName = xml.documentElement.nodeName;
-
-    if (rootName.includes(":")) {
-      const parts = rootName.split(":");
-      rootName = parts[0] + "$" + parts[1];
+    let parsed;
+    try {
+      parsed = convert(text);
+    } catch (e) {
+      return new Response("XML parse error", { status: 500 });
     }
+
+    const rootKey = Object.keys(parsed)[0] || "feed";
 
     const data = {
       version: "1.0",
       encoding: "UTF-8",
-      [rootName]: xmlToGData(xml.documentElement)
+      [rootKey]: parsed[rootKey]
     };
 
     let body = JSON.stringify(data);
@@ -121,7 +107,7 @@ export async function onRequest(context) {
       body = `${callback}(${body})`;
       return new Response(body, {
         headers: {
-          "content-type": "application/javascript; charset=UTF-8",
+          "content-type": "application/javascript",
           ...cors()
         }
       });
@@ -129,14 +115,14 @@ export async function onRequest(context) {
 
     return new Response(body, {
       headers: {
-        "content-type": "application/json; charset=UTF-8",
+        "content-type": "application/json",
         ...cors()
       }
     });
   }
 
   // =========================
-  // TEXT / XML REWRITE
+  // TEXT/XML REWRITE
   // =========================
   let body = upstreamRes.body;
 
@@ -152,32 +138,27 @@ export async function onRequest(context) {
     text = text
       .replaceAll("http://gdata.vidtape.lol", base)
       .replaceAll("https://gdata.vidtape.lol", base)
-      .replaceAll(
-        "http:\\/\\/gdata.vidtape.lol",
-        base.replace(/\//g, "\\/")
-      );
+      .replaceAll("http:\\/\\/gdata.vidtape.lol", base.replace(/\//g, "\\/"));
 
     body = text;
   }
 
-  const headersOut = new Headers(upstreamRes.headers);
+  const headers = new Headers(upstreamRes.headers);
 
   if (!alt || alt === "xml") {
-    headersOut.set("content-type", "application/atom+xml; charset=UTF-8");
+    headers.set("content-type", "application/atom+xml; charset=UTF-8");
   }
 
-  headersOut.delete("content-security-policy");
-  headersOut.delete("content-security-policy-report-only");
-  headersOut.delete("x-frame-options");
+  headers.delete("content-security-policy");
+  headers.delete("x-frame-options");
 
   for (const [k, v] of Object.entries(cors())) {
-    headersOut.set(k, v);
+    headers.set(k, v);
   }
 
   return new Response(body, {
     status: upstreamRes.status,
-    statusText: upstreamRes.statusText,
-    headers: headersOut
+    headers
   });
 }
 
@@ -185,7 +166,6 @@ function cors() {
   return {
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "*",
-    "access-control-allow-headers": "*",
-    "access-control-expose-headers": "*"
+    "access-control-allow-headers": "*"
   };
 }
