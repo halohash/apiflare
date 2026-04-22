@@ -2,6 +2,8 @@ export async function onRequest(context) {
   const { request } = context;
 
   const upstream = "http://gdata.vidtape.lol";
+  const prefix = "/tapeit";
+
   const url = new URL(request.url);
 
   if (request.method === "OPTIONS") {
@@ -16,18 +18,11 @@ export async function onRequest(context) {
 
   const query = params.toString();
 
-  const prefix = "/tapeit";
-
   let path = url.pathname;
-
-  if (path.startsWith(prefix)) {
-    path = path.slice(prefix.length);
-  }
-
+  if (path.startsWith(prefix)) path = path.slice(prefix.length);
   if (!path.startsWith("/")) path = "/" + path;
 
-  const targetUrl =
-    upstream + path + (query ? "?" + query : "");
+  const targetUrl = upstream + path + (query ? "?" + query : "");
 
   const headers = new Headers(request.headers);
   headers.set("Host", new URL(upstream).host);
@@ -50,59 +45,81 @@ export async function onRequest(context) {
     params.get("jsonp") ||
     params.get("cb");
 
-  let contentType = upstreamRes.headers.get("content-type") || "";
-  let body = upstreamRes.body;
+  const contentType = upstreamRes.headers.get("content-type") || "";
 
-  // ===== JSON / JSONP =====
+  // =========================
+  // GDATA XML -> JSON
+  // =========================
   if (alt && alt.startsWith("json")) {
     let text = await upstreamRes.text();
-    let data;
 
-    try {
-      data = JSON.parse(text);
-    } catch {
-      try {
-        const xml = new DOMParser().parseFromString(text, "text/xml");
+    const xml = new DOMParser().parseFromString(text, "text/xml");
 
-        const xmlToJson = (node) => {
-          if (node.nodeType === 3) return node.nodeValue.trim();
-
-          const obj = {};
-
-          if (node.attributes) {
-            for (let attr of node.attributes) {
-              obj[attr.name] = attr.value;
-            }
-          }
-
-          for (let child of node.childNodes) {
-            const val = xmlToJson(child);
-            if (!val) continue;
-
-            const name = child.nodeName;
-
-            if (obj[name]) {
-              if (!Array.isArray(obj[name])) obj[name] = [obj[name]];
-              obj[name].push(val);
-            } else {
-              obj[name] = val;
-            }
-          }
-
-          return obj;
-        };
-
-        data = xmlToJson(xml.documentElement);
-      } catch {
-        data = { raw: text };
+    function xmlToGData(node) {
+      if (node.nodeType === 3) {
+        const v = node.nodeValue.trim();
+        return v ? { "$t": v } : null;
       }
+
+      const obj = {};
+
+      if (node.attributes) {
+        for (let attr of node.attributes) {
+          obj[attr.name] = attr.value;
+        }
+      }
+
+      let hasElementChildren = false;
+
+      for (let child of node.childNodes) {
+        if (child.nodeType === 1) {
+          hasElementChildren = true;
+
+          let name = child.nodeName;
+
+          if (name.includes(":")) {
+            const parts = name.split(":");
+            name = parts[0] + "$" + parts[1];
+          }
+
+          const val = xmlToGData(child);
+          if (!val) continue;
+
+          if (obj[name]) {
+            if (!Array.isArray(obj[name])) obj[name] = [obj[name]];
+            obj[name].push(val);
+          } else {
+            obj[name] = val;
+          }
+        }
+      }
+
+      if (!hasElementChildren) {
+        const text = node.textContent?.trim();
+        if (text) obj["$t"] = text;
+      }
+
+      return obj;
     }
 
-    let out = JSON.stringify(data);
+    let rootName = xml.documentElement.nodeName;
+
+    if (rootName.includes(":")) {
+      const parts = rootName.split(":");
+      rootName = parts[0] + "$" + parts[1];
+    }
+
+    const data = {
+      version: "1.0",
+      encoding: "UTF-8",
+      [rootName]: xmlToGData(xml.documentElement)
+    };
+
+    let body = JSON.stringify(data);
 
     if ((alt === "json-in-script" || callback) && callback) {
-      out = `${callback}(${out})`;
-      return new Response(out, {
+      body = `${callback}(${body})`;
+      return new Response(body, {
         headers: {
           "content-type": "application/javascript; charset=UTF-8",
           ...cors()
@@ -110,7 +127,7 @@ export async function onRequest(context) {
       });
     }
 
-    return new Response(out, {
+    return new Response(body, {
       headers: {
         "content-type": "application/json; charset=UTF-8",
         ...cors()
@@ -118,7 +135,11 @@ export async function onRequest(context) {
     });
   }
 
-  // ===== Rewrite URLs so they stay in /tapeit =====
+  // =========================
+  // TEXT / XML REWRITE
+  // =========================
+  let body = upstreamRes.body;
+
   if (
     contentType.includes("text") ||
     contentType.includes("xml") ||
@@ -164,6 +185,7 @@ function cors() {
   return {
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "*",
-    "access-control-allow-headers": "*"
+    "access-control-allow-headers": "*",
+    "access-control-expose-headers": "*"
   };
 }
