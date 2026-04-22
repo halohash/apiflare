@@ -40,9 +40,6 @@ export async function onRequest(context) {
 
   const contentType = upstreamRes.headers.get("content-type") || "";
 
-  // =========================
-  // CLEAN URL FUNCTION
-  // =========================
   function cleanUrl(u) {
     try {
       const parsed = new URL(u);
@@ -72,15 +69,13 @@ export async function onRequest(context) {
     }
   }
 
-  // =========================
-  // JSON / JSONP MODE
-  // =========================
   if (alt && alt.startsWith("json")) {
-    const xmlTextRaw = await upstreamRes.text();
+    let xmlTextRaw = await upstreamRes.text();
+
+    xmlTextRaw = xmlTextRaw.replace(/<\?xml[^>]*\?>/i, "");
 
     const base = url.origin + prefix;
 
-    // rewrite + clean URLs BEFORE parsing
     const xmlText = xmlTextRaw
       .replace(
         /(https?:\/\/gdata\.vidtape\.lol[^\s"'<>]*)/g,
@@ -189,9 +184,6 @@ export async function onRequest(context) {
     });
   }
 
-  // =========================
-  // XML / TEXT MODE
-  // =========================
   let body = upstreamRes.body;
 
   if (
@@ -200,6 +192,8 @@ export async function onRequest(context) {
     contentType.includes("json")
   ) {
     let text = await upstreamRes.text();
+
+    text = text.replace(/<\?xml[^>]*\?>/i, "");
 
     const base = url.origin + prefix;
 
