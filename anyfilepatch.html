@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Multi Rule File Patcher</title>
+<style>
+body { font-family: sans-serif; padding: 20px; background:#111; color:#eee; }
+input, button { margin: 6px 0; padding: 8px; width: 100%; }
+.rule { border:1px solid #333; padding:10px; margin:10px 0; }
+.row { display:flex; gap:10px; }
+.row input { flex:1; }
+button { cursor:pointer; }
+</style>
+</head>
+<body>
+
+<h2>Multi-Rule Byte-Preserving File Patcher</h2>
+
+<input type="file" id="file">
+<input type="text" id="url" placeholder="Or enter file URL...">
+<button onclick="loadFromURL()">Load from URL</button>
+
+<div id="rules"></div>
+
+<button onclick="addRule()">+ Add Rule</button>
+<button onclick="patch()">Patch & Download</button>
+
+<script>
+const rulesDiv = document.getElementById("rules");
+let currentBuffer = null;
+let currentName = "patched.bin";
+
+function addRule(find="", replace="") {
+  const div = document.createElement("div");
+  div.className = "rule";
+
+  div.innerHTML = `
+    <div class="row">
+      <input placeholder="Find" value="${find}">
+      <input placeholder="Replace" value="${replace}">
+    </div>
+    <label>
+      <input type="checkbox" checked> Auto-pad
+    </label>
+    <button onclick="this.parentElement.remove()">Remove</button>
+  `;
+
+  rulesDiv.appendChild(div);
+}
+
+addRule();
+
+document.getElementById("file").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  currentName = file.name;
+  currentBuffer = new Uint8Array(await file.arrayBuffer());
+});
+
+async function loadFromURL() {
+  const url = document.getElementById("url").value.trim();
+  if (!url) return alert("Enter a URL");
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Fetch failed");
+
+    const buf = await res.arrayBuffer();
+    currentBuffer = new Uint8Array(buf);
+
+    currentName = url.split("/").pop() || "downloaded.bin";
+
+    alert("File loaded from URL");
+  } catch (e) {
+    alert("Failed to fetch file. The server may block cross-origin requests (CORS). Use a proxy if needed.");
+  }
+}
+
+function findIndex(data, sub, start) {
+  outer: for (let i = start; i <= data.length - sub.length; i++) {
+    for (let j = 0; j < sub.length; j++) {
+      if (data[i + j] !== sub[j]) continue outer;
+    }
+    return i;
+  }
+  return -1;
+}
+
+function patch() {
+  if (!currentBuffer) return alert("Load a file first");
+
+  const buf = new Uint8Array(currentBuffer);
+  const encoder = new TextEncoder();
+  const ruleEls = document.querySelectorAll(".rule");
+
+  for (const rule of ruleEls) {
+    const inputs = rule.querySelectorAll("input");
+    const findStr = inputs[0].value;
+    let replaceStr = inputs[1].value;
+    const autoPad = inputs[2].checked;
+
+    const findBytes = encoder.encode(findStr);
+    let replaceBytes = encoder.encode(replaceStr);
+
+    if (replaceBytes.length !== findBytes.length) {
+      if (!autoPad) {
+        alert("Length mismatch in one rule");
+        return;
+      }
+
+      if (replaceBytes.length > findBytes.length) {
+        alert("Replacement longer than find string");
+        return;
+      }
+
+      const padded = new Uint8Array(findBytes.length);
+      padded.set(replaceBytes);
+
+      for (let i = replaceBytes.length; i < padded.length; i++) {
+        padded[i] = 0x20;
+      }
+
+      replaceBytes = padded;
+    }
+
+    let offset = 0;
+    while (true) {
+      const idx = findIndex(buf, findBytes, offset);
+      if (idx === -1) break;
+
+      buf.set(replaceBytes, idx);
+      offset = idx + findBytes.length;
+    }
+  }
+
+  const blob = new Blob([buf]);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "patched_" + currentName;
+  a.click();
+}
+</script>
+
+</body>
+</html>
