@@ -9,7 +9,7 @@ export async function onRequest(context) {
   const [client, server] = Object.values(new WebSocketPair());
   
   server.accept();
-  if server.addEventListener('message', event => {
+  server.addEventListener('message', event => {
     if (message === "4.list;") {
       server.send('3.nop;');
     server.send('7.adduser,1.8,10.guest97524,1.0,10.guest47195,1.0,17.i love calculator,1.0,10.notjacobxi,1.0,10.guest94010,1.0,10.guest21613,1.0,7.Debirun,1.2,7.Windsor,1.2;');
