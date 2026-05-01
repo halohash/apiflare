@@ -1,40 +1,39 @@
 export async function onRequest() {
   try {
-    // 🔁 CHANGE THIS if you want local instead:
     const res = await fetch("https://hashpie.pages.dev/tracks.json");
     if (!res.ok) {
       return new Response("Failed to fetch track list", { status: 500 });
     }
 
-    let list = await res.json();
-
-    if (!Array.isArray(list)) {
-      return new Response("TV Unvailable", { status: 500 });
+    const list = await res.json();
+    if (!Array.isArray(list) || list.length === 0) {
+      return new Response("TV Unavailable", { status: 500 });
     }
 
-    // 🌀 Shuffle (Fisher-Yates)
-    for (let i = list.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [list[i], list[j]] = [list[j], list[i]];
+    const WINDOW_SIZE = 5;
+    const DEFAULT_DURATION = 30;
+
+    // simple rotating index (no fake offsets)
+    const now = Math.floor(Date.now() / 1000);
+    const startIndex = now % list.length;
+
+    let playlist =
+      "#EXTM3U\n" +
+      "#EXT-X-VERSION:3\n" +
+      "#EXT-X-TARGETDURATION:30\n" +
+      `#EXT-X-MEDIA-SEQUENCE:${startIndex}\n`;
+
+    for (let i = 0; i < WINDOW_SIZE; i++) {
+      const track = list[(startIndex + i) % list.length];
+      if (!track.url) continue;
+
+      const duration = track.duration || DEFAULT_DURATION;
+      const title = track.title || "Channel";
+
+      playlist += `#EXTINF:${duration},${title}\n`;
+      playlist += `${track.url}\n`;
+      playlist += "#EXT-X-DISCONTINUITY\n";
     }
-
-    // 🔊 Build M3U8
-    let playlist = "#EXTM3U\n#EXT-X-VERSION:3\n";
-
-    // 🔁 Repeat tracks to simulate "infinite TV"
-    const REPEATS = 512; // increase for longer playlists
-
-    for (let r = 0; r < REPEATS; r++) {
-      for (const track of list) {
-        if (!track.url) continue;
-
-        const title = track.title || "Unknown";
-        playlist += `#EXTINF\n`;
-        playlist += `${track.url}\n`;
-      }
-    }
-
-    // ❌ Do NOT add #EXT-X-ENDLIST → keeps it "live-like"
 
     return new Response(playlist, {
       headers: {
