@@ -1,54 +1,37 @@
 export async function onRequest(context) {
-  const { request } = context;
-  const url = new URL(request.url);
-
+  const url = new URL(context.request.url);
   const video = url.searchParams.get("video");
 
   if (!video) {
-    return new Response("Missing ?video= param", { status: 400 });
+    return new Response("Missing ?video=", { status: 400 });
   }
 
-  const html = `
+  return new Response(`
 <!DOCTYPE html>
 <html>
-<head>
-  <title>Broadcasting Video</title>
-</head>
-<body style="margin:0;background:black;">
-  <video id="vid" src="${video}" crossorigin="anonymous" autoplay muted playsinline loop style="width:100vw;height:100vh;"></video>
+<body style="margin:0;background:black;overflow:hidden;">
 
-  <script>
-    const video = document.getElementById("vid");
+<video id="v" src="${video}" autoplay muted playsinline loop crossorigin="anonymous"
+style="position:fixed;width:100vw;height:100vh;object-fit:contain;"></video>
 
-    // Wait until video is ready
-    video.oncanplay = async () => {
-      const stream = video.captureStream();
+<iframe id="ninja"
+src="https://vdo.ninja/?room=CollabVideoV2&push=CollabVideoV2&autostart&cleanoutput&webcam"
+style="position:fixed;top:0;left:0;width:0;height:0;border:0;"></iframe>
 
-      // Open VDO.Ninja with stream
-      const room = "CollabVideoV2";
+<script>
+const video = document.getElementById("v");
 
-      const win = window.open(
-        "https://vdo.ninja/?room=" + room + "&push=" + room + "&autostart&cleanoutput",
-        "_blank"
-      );
+video.oncanplay = async () => {
+  const stream = video.captureStream();
 
-      // Give time for page to load, then inject stream
-      setTimeout(() => {
-        if (win) {
-          win.postMessage({
-            stream: stream
-          }, "*");
-        }
-      }, 3000);
-    };
-  </script>
+  // Override getUserMedia so VDO.Ninja uses our video instead of webcam
+  navigator.mediaDevices.getUserMedia = async () => stream;
+};
+</script>
+
 </body>
 </html>
-`;
-
-  return new Response(html, {
-    headers: {
-      "content-type": "text/html"
-    }
+`, {
+    headers: { "content-type": "text/html" }
   });
 }
