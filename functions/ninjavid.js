@@ -15,7 +15,7 @@ export async function onRequest(context) {
   <title>Broadcasting Video</title>
 </head>
 <body style="margin:0;background:black;">
-  <video id="vid" src="${video}" autoplay muted playsinline loop style="width:100vw;height:100vh;"></video>
+  <video id="vid" src="${video}" crossorigin="anonymous" autoplay muted playsinline loop style="width:100vw;height:100vh;"></video>
 
   <script>
     const video = document.getElementById("vid");
